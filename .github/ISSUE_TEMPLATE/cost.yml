@@ -1,0 +1,23 @@
+name: Report a wrong cost
+description: A hideout level costs something different in-game.
+title: "Cost: "
+body:
+  - type: input
+    id: level
+    attributes:
+      label: Station and level
+      placeholder: Heat Source, level 2
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost shown in-game
+      description: Parts and cash. A screenshot of the requirements screen helps.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Game version
+      placeholder: "0.5.0.2"

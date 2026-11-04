@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GZW Hideout Tracker</title>
+  <meta name="description" content="Track your Gray Zone Warfare hideout: what to build next, which parts you are missing and where players report finding them.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%232a3324'/%3E%3Cpath d='M6 26V13l10-7 10 7v13h-7v-8h-6v8z' fill='%23f0953f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="head-top">
+        <div>
+          <h1>GZW Hideout Tracker</h1>
+          <p class="muted">What to build next, what you are missing, and where players report finding it.</p>
+        </div>
+        <div class="row" id="backup"></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="bar" role="progressbar" aria-label="Hideout progress" aria-valuemin="0" aria-valuemax="36" id="barwrap"><i id="bar"></i></div>
+    </header>
+    <section class="now" id="now" aria-label="Next build"></section>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+    <main class="view" id="view"></main>
+    <footer class="small muted">
+      Fan project, not affiliated with or endorsed by MADFINGER Games. Gray Zone Warfare and its content belong to their owners.
+      Your progress stays in this browser.
+      <a href="https://github.com/Sorin-Ionut-Rosalim/gzw-hideout-tracker">Source and corrections on GitHub</a>.
+    </footer>
+  </div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

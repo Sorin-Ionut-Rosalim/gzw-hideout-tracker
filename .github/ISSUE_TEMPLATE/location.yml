@@ -1,0 +1,35 @@
+name: Report a location
+description: You found a hideout part somewhere that the tracker does not list.
+title: "Location: "
+body:
+  - type: input
+    id: part
+    attributes:
+      label: Part
+      placeholder: Fine Metal Mesh
+    validations:
+      required: true
+  - type: input
+    id: place
+    attributes:
+      label: Place and in-game coordinates
+      placeholder: Fort Narith, 145 126
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Where exactly?
+      description: Crate type, building, floor, how often you found it.
+  - type: input
+    id: version
+    attributes:
+      label: Game version
+      placeholder: "0.5.0.2"
+  - type: checkboxes
+    id: origin
+    attributes:
+      label: Source
+      options:
+        - label: I saw this in-game myself, or I link a source below that allows reuse. It is not copied from another site's data.
+          required: true
