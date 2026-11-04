@@ -68,6 +68,7 @@ header { display: grid; gap: 14px; }
 .btn.main:hover { filter: brightness(1.08); }
 .btn.tiny { padding: 3px 8px; font-size: 13px; }
 .btn.on { border-color: var(--good); color: var(--good); }
+.btn.danger { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 label.btn { display: inline-block; cursor: pointer; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 

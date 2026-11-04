@@ -17,7 +17,7 @@ const ALL_MATERIALS = [...new Set(ORDER.flatMap(key => Object.keys(level(key).c)
 
 // ---------- State ----------
 const empty = () => ({ have: {}, built: {}, used: {}, focus: null, faction: null, tab: "materials", scope: "five" });
-const prefs = { search: "", confirmReset: false, message: "", saveFailed: false };
+const prefs = { search: "", confirmDelete: false, message: "", saveFailed: false };
 
 // Keeps only what the app knows, so a damaged or edited backup cannot break the page.
 function clean(raw) {
@@ -154,6 +154,20 @@ function unbuild(id, n) {
   if (!state.built[id]) delete state.built[id];
   save();
 }
+// Removes the saved entry completely. Nothing is written back until the next change.
+function deleteData() {
+  const tab = state.tab;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    prefs.message = "Your data was deleted from this browser.";
+  } catch {
+    prefs.message = "Your browser blocked this. Clear this site's data in the browser settings.";
+  }
+  state = empty();
+  state.tab = tab;
+  prefs.search = "";
+  render();
+}
 function exportBackup() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -204,6 +218,15 @@ function scopeBar() {
 }
 const LEGEND = `<p class="small muted"><span class="mark r">●</span> named by a guide or player &nbsp; <span class="mark t">◐</span> type of place only &nbsp; <span class="mark g">?</span> educated guess, no source yet. Spawns are never guaranteed.</p>`;
 
+// The same controls appear in the header and on the About tab.
+function deleteControls() {
+  const buttons = prefs.confirmDelete
+    ? `<span class="small warn">Delete your parts, builds and faction from this browser? This cannot be undone.</span>
+       <button class="btn tiny danger" data-act="delete-yes">Yes, delete</button><button class="btn tiny" data-act="delete-no">Cancel</button>`
+    : `<button class="btn tiny" data-act="delete">Delete my data</button>`;
+  return buttons + (prefs.message ? `<span class="small" role="status">${esc(prefs.message)}</span>` : "");
+}
+
 // ---------- Sections ----------
 function renderHeader(q) {
   const total = ORDER.length, done = total - q.length, need = needs(q);
@@ -222,10 +245,7 @@ function renderHeader(q) {
   document.getElementById("backup").innerHTML =
     `<button class="btn tiny" data-act="export">Export</button>
      <label class="btn tiny">Import<input class="visually-hidden" id="import" type="file" accept="application/json,.json"></label>
-     ${prefs.confirmReset
-       ? `<button class="btn tiny on" data-act="reset-yes">Yes, erase</button><button class="btn tiny" data-act="reset-no">Cancel</button>`
-       : `<button class="btn tiny" data-act="reset">Reset</button>`}
-     ${prefs.message ? `<span class="small" role="status">${esc(prefs.message)}</span>` : ""}`;
+     ${deleteControls()}`;
 }
 
 function renderNow(q) {
@@ -318,6 +338,7 @@ function renderAbout() {
     <p>This site has no map on purpose, because we have no permission to host one. <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> is a great interactive one: paste the coordinates there.</p>
     <h2>Your data</h2>
     <p>Your parts, builds and faction are saved automatically in this browser, and the page reopens as you left it. There is no account, cookies or analytics, and nothing is sent anywhere. Clearing your browser data erases it, and private windows may not keep it, so use Export to back it up or move it to another device.</p>
+    <div class="row">${deleteControls()}</div>
     <h2>Sources</h2>
     <p>${list}. Thanks to everyone who maintains them.</p>
     <p class="small muted">Fan project, not affiliated with or endorsed by MADFINGER Games. Gray Zone Warfare and its content belong to their owners.</p>
@@ -351,7 +372,7 @@ document.addEventListener("click", e => {
   if (!b) return;
   const { act, m, id, n, v, k } = b.dataset;
   prefs.message = "";
-  if (act !== "reset") prefs.confirmReset = false;
+  prefs.confirmDelete = false;
   if (act === "inc") setHave(m, have(m) + 1);
   else if (act === "dec") setHave(m, have(m) - 1);
   else if (act === "build") build(id, +n);
@@ -359,9 +380,9 @@ document.addEventListener("click", e => {
   else if (act === "focus") { state.focus = k; save(); }
   else if (act === "unfocus") { state.focus = null; save(); }
   else if (act === "export") { exportBackup(); render(); }
-  else if (act === "reset") { prefs.confirmReset = true; render(); }
-  else if (act === "reset-no") render();
-  else if (act === "reset-yes") { state = empty(); prefs.message = "Progress erased."; save(); }
+  else if (act === "delete") { prefs.confirmDelete = true; render(); }
+  else if (act === "delete-no") render();
+  else if (act === "delete-yes") deleteData();
   else if (act === "tab") { state.tab = v; history.replaceState(null, "", "#" + v); save(); }
   else if (act === "scope") { state.scope = v; save(); }
 });

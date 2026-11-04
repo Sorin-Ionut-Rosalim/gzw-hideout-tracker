@@ -11,7 +11,7 @@ A small page for Gray Zone Warfare players: what to build next in the hideout, w
 - Missing parts for the next build, the next 5, or the whole hideout
 - Possible locations and coordinates for each part, with sources and a confidence mark
 - Pick your faction to sort locations by distance from your base
-- Everything saved automatically in your browser, with export and import
+- Everything saved automatically in your browser, with export, import and delete
 
 There is no map on purpose: we have no permission to host one. Coordinates match the in-game grid, so you can look them up in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
 
