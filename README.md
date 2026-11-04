@@ -10,7 +10,7 @@ A small page for Gray Zone Warfare players: what to build next in the hideout, w
 
 - All 36 hideout levels with parts and cash costs
 - A suggested build order, or pick your own next build
-- Log loot in seconds, using full names or the short names shown in-game
+- Log loot in seconds, with suggestions for full names or the short names shown in-game
 - See what is ready to build now and what is almost there
 - Missing parts for the next build, the next 5, or the whole hideout, and a raid list to copy to your squad
 - Possible locations and coordinates for each part, with sources and a confidence mark
@@ -19,7 +19,7 @@ A small page for Gray Zone Warfare players: what to build next in the hideout, w
 - Undo after building or logging, light and dark themes, works offline after the first visit
 - Everything saved automatically in your browser, with export, import and delete
 
-The Map tab uses in-game screenshots and shows only the places in this tracker. The map belongs to MADFINGER Games and will be removed if they ask. Coordinates match the in-game grid, so you can also use them in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
+The Map tab uses in-game screenshots with session icons removed, loads detail only for the part on screen, and shows only the places in this tracker. The map belongs to MADFINGER Games and will be removed if they ask. Coordinates match the in-game grid, so you can also use them in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
 
 ## Corrections
 

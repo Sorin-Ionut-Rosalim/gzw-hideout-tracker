@@ -61,6 +61,7 @@ Object.entries(WHERE).forEach(([m, list]) => list.forEach(entry => {
 const validPoint = ([x, y]) => x >= 100 && x <= 240 && y >= 100 && y <= 180;
 Object.entries(LOCS).forEach(([id, loc]) => {
   if (!loc.src || !loc.src.length) errors.push(`${id} has no source`);
+  if (!loc.everywhere && !loc.at && !loc.pos) errors.push(`${id} has no position for the map`);
   (loc.src || []).forEach(s => { if (!SOURCES[s]) errors.push(`${id}: unknown source ${s}`); });
   if (loc.at) loc.at.split("·").forEach(p => {
     if (!/^\d{3} \d{3}$/.test(p.trim()) || !validPoint(p.trim().split(" ").map(Number))) errors.push(`${id}: bad coordinates "${p}"`);

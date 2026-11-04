@@ -23,7 +23,7 @@ const empty = () => ({
   ranks: { labRat: true, artisan: true },
   tab: "materials", scope: "five", theme: "auto", hideDone: false, guideDone: false,
 });
-const prefs = { search: "", confirmDelete: false, message: "", undo: null, saveFailed: false, askedPersist: false, toastTimer: null };
+const prefs = { search: "", placeSearch: "", confirmDelete: false, message: "", undo: null, saveFailed: false, askedPersist: false, toastTimer: null };
 
 // Keeps only what the app knows, so a damaged or edited backup cannot break the page.
 function clean(raw) {
@@ -165,19 +165,150 @@ function setHave(m, n) {
   if (n) state.have[m] = n; else delete state.have[m];
   save();
 }
-// Accepts full names and in-game short names, in any letter case.
-function findMaterial(text) {
-  const t = text.trim().toLowerCase();
-  return ALL_MATERIALS.find(m => m.toLowerCase() === t || (SHORT_NAMES[m] || "").toLowerCase() === t)
-    || ALL_MATERIALS.find(m => m.toLowerCase().startsWith(t) || (SHORT_NAMES[m] || "").toLowerCase().startsWith(t));
+// ---------- Search ----------
+// How well a text matches a query: exact, then start of the name, start of a word, anywhere, and
+// finally the letters in order, which forgives typos like "eletrical". 0 means no match.
+function textScore(query, text) {
+  const q = query.toLowerCase(), t = text.toLowerCase();
+  if (!q || !t) return 0;
+  if (t === q) return 100;
+  if (t.startsWith(q)) return 90;
+  if (t.split(/[\s,()]+/).some(word => word.startsWith(q))) return 75;
+  if (t.includes(q)) return 55;
+  if (q.length >= 3) {
+    let i = 0;
+    for (const c of t) if (c === q[i]) i++;
+    if (i === q.length) return 25;
+  }
+  return 0;
 }
-function logLoot(text, qty) {
-  const m = text.trim() && findMaterial(text);
-  if (!m) { notify(`No hideout part called “${text.trim()}”. Pick one from the list.`); return false; }
+// Every word of the query must match, so "motor oil" and "oil motor" both work.
+function queryScore(query, names) {
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  const whole = Math.max(...names.map(n => textScore(query.trim(), n)));
+  if (whole) return whole;
+  const each = words.map(w => Math.max(...names.map(n => textScore(w, n))));
+  return each.every(Boolean) ? Math.min(...each) - 5 : 0;
+}
+const materialScore = (query, m) => queryScore(query, [m, SHORT_NAMES[m] || ""]);
+function searchMaterials(query) {
+  const found = ALL_MATERIALS.map(m => [m, materialScore(query, m)]).filter(([, s]) => s).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  // Letters in order are only a fallback for typos, so they do not crowd out real matches.
+  const strong = found.filter(([, s]) => s > 30);
+  return (strong.length ? strong : found).map(([m]) => m);
+}
+// Reads an amount typed with the part: "3 eparts", "eparts 3", "eparts x3".
+function parseLoot(text) {
+  const match = text.trim().match(/^(\d+)\s*x?\s+(.+)$/i) || text.trim().match(/^(.+?)\s+x?(\d+)$/i);
+  if (!match) return { query: text.trim(), qty: null };
+  return /^\d/.test(match[1]) ? { query: match[2], qty: +match[1] } : { query: match[1], qty: +match[2] };
+}
+function logLoot(m, qty) {
   const before = have(m);
   setHave(m, before + qty);
   notify(`Added ${qty} ${m}. You have ${have(m)}.`, () => setHave(m, before));
-  return true;
+}
+function materialOption(m, need) {
+  const left = Math.max(0, (need[m] || 0) - have(m));
+  return { value: m, label: m, short: SHORT_NAMES[m] && SHORT_NAMES[m] !== m ? SHORT_NAMES[m] : "", hint: left ? `need ${left}` : `have ${have(m)}` };
+}
+
+// A search box with a suggestion list. One definition per box.
+const combos = {
+  log: {
+    options(text) {
+      const { query } = parseLoot(text);
+      const need = needs(queue());
+      if (!query) {
+        const next = needs(queue().slice(0, 5));
+        return Object.keys(next).filter(m => next[m] > have(m)).sort().map(m => materialOption(m, need));
+      }
+      return searchMaterials(query).map(m => materialOption(m, need));
+    },
+    pick(option, text) {
+      const { qty } = parseLoot(text);
+      const field = document.getElementById("log-qty");
+      logLoot(option.value, qty || Math.max(1, Math.floor(+field.value) || 1));
+      field.value = 1;
+      return "";
+    },
+    none: text => `No hideout part matches “${parseLoot(text).query}”.`,
+  },
+  mapfind: {
+    options(text) {
+      const query = text.trim();
+      const need = needs(queue());
+      const parts = ALL_MATERIALS.map(m => ({ ...materialOption(m, need), kind: "part", score: query ? materialScore(query, m) : 0 }));
+      if (!query) return parts.filter(o => need[o.value] > have(o.value)).slice(0, 8);
+      const places = Object.entries(LOCS).filter(([, loc]) => !loc.everywhere)
+        .map(([id, loc]) => ({ value: id, kind: "place", label: loc.name, short: "", hint: loc.at ? loc.at.split("·")[0].trim() : "place", score: queryScore(query, [loc.name]) }));
+      return [...parts, ...places].filter(o => o.score).sort((a, b) => b.score - a.score).slice(0, 12);
+    },
+    pick(option) {
+      if (option.kind === "part") {
+        mapPrefs.filter = option.value;
+        mapPrefs.selected = null;
+      } else {
+        const [x, y] = locationPoints(LOCS[option.value])[0];
+        const w = Math.min(mapPrefs.view.w, 26);
+        mapPrefs.filter = "all";
+        mapPrefs.selected = [option.value];
+        mapPrefs.view = mapClamp({ x: x - w / 2, y: flipY(y) - w / MAP_ASPECT / 2, w });
+      }
+      render();
+      return option.label;
+    },
+    none: text => `Nothing on the map matches “${text.trim()}”.`,
+  },
+};
+const comboState = { name: null, items: [], active: -1, quiet: false };
+function comboClose() {
+  if (!comboState.name) return;
+  const input = document.getElementById(comboState.name + "-input"), list = document.getElementById(comboState.name + "-list");
+  if (list) { list.hidden = true; list.innerHTML = ""; }
+  if (input) { input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); }
+  comboState.name = null;
+}
+function comboPaint() {
+  const input = document.getElementById(comboState.name + "-input"), list = document.getElementById(comboState.name + "-list");
+  if (!list || !input) return;
+  list.innerHTML = comboState.items.map((o, i) =>
+    `<li id="${comboState.name}-opt-${i}" role="option" aria-selected="${i === comboState.active}" data-combo-index="${i}"><span>${esc(o.label)}${o.short ? ` <span class="alias">${esc(o.short)}</span>` : ""}</span><span class="small muted">${esc(o.hint)}</span></li>`).join("");
+  list.hidden = !comboState.items.length;
+  input.setAttribute("aria-expanded", String(!list.hidden));
+  if (comboState.active >= 0) {
+    input.setAttribute("aria-activedescendant", `${comboState.name}-opt-${comboState.active}`);
+    list.children[comboState.active].scrollIntoView({ block: "nearest" });
+  } else input.removeAttribute("aria-activedescendant");
+}
+function comboOpen(name, text) {
+  comboState.name = name;
+  comboState.items = combos[name].options(text);
+  // With text typed, the top match is highlighted, so Enter does what the list shows.
+  comboState.active = parseLoot(text).query && comboState.items.length ? 0 : -1;
+  comboPaint();
+}
+function comboChoose(name, index) {
+  const option = comboState.items[index];
+  const input = document.getElementById(name + "-input");
+  if (!option || !input) return;
+  const text = input.value;
+  comboClose();
+  // The pick may redraw the box and put the cursor back in it, which must not reopen the list.
+  comboState.quiet = true;
+  const value = combos[name].pick(option, text);
+  const fresh = document.getElementById(name + "-input");
+  if (fresh) { fresh.value = value; fresh.focus(); }
+  comboState.quiet = false;
+}
+function comboSubmit(name) {
+  const input = document.getElementById(name + "-input");
+  const text = input.value;
+  if (comboState.name !== name) comboOpen(name, text);
+  if (!text.trim() && comboState.active < 0) return;
+  if (comboState.items.length) comboChoose(name, Math.max(0, comboState.active));
+  else notify(combos[name].none(text));
 }
 // Building takes parts from the stock and remembers how many, so Undo returns exactly that.
 function build(id, n) {
@@ -275,7 +406,9 @@ function whereList(m) {
 }
 function usedFor(m, q) {
   const list = q.filter(key => level(key).c[m]).map(key => `${levelName(key)} ×${level(key).c[m]}`);
-  return list.length ? `<p class="small muted">For: ${esc(list.join(", "))}</p>` : "";
+  if (!list.length) return "";
+  const more = list.length > 3 ? `, +${list.length - 3} more` : "";
+  return `<p class="small muted">For: ${esc(list.slice(0, 3).join(", "))}${more}</p>`;
 }
 function sourceLinks(ids) {
   return ids.map(id => SOURCES[id].url ? `<a href="${SOURCES[id].url}" target="_blank" rel="noopener">${esc(SOURCES[id].name)}</a>` : esc(SOURCES[id].name)).join(", ");
@@ -385,29 +518,61 @@ function renderReady(q) {
     ${close.length ? `<div><h3>Almost there</h3>${close.map(key => row(key, `need ${missingText(key)}`, false)).join("")}</div>` : ""}`;
 }
 
-function renderMaterials(q) {
-  const need = needs(scopeKeys(q)), nextNeed = q[0] ? level(q[0]).c : {};
-  const list = Object.entries(need).sort((a, b) => {
-    const ma = a[1] - have(a[0]), mb = b[1] - have(b[0]);
-    if ((ma > 0) !== (mb > 0)) return ma > 0 ? -1 : 1;
-    if (!!nextNeed[a[0]] !== !!nextNeed[b[0]]) return nextNeed[a[0]] ? -1 : 1;
-    return mb - ma || a[0].localeCompare(b[0]);
-  });
-  const rows = list.map(([m, n]) => `<div class="mat${have(m) >= n ? " done" : ""}" data-name="${esc((m + " " + (SHORT_NAMES[m] || "")).toLowerCase())}" data-done="${have(m) >= n}">
+// While searching, the whole hideout counts, so a part is found even if it is not needed soon.
+function materialRows(q) {
+  const nextNeed = q[0] ? level(q[0]).c : {};
+  const searching = !!prefs.search.trim();
+  const need = needs(searching ? q : scopeKeys(q));
+  let list = Object.entries(need);
+  if (searching) {
+    list = searchMaterials(prefs.search).filter(m => need[m]).map(m => [m, need[m]]);
+  } else {
+    if (state.hideDone) list = list.filter(([m, n]) => have(m) < n);
+    list.sort((a, b) => {
+      const ma = a[1] - have(a[0]), mb = b[1] - have(b[0]);
+      if ((ma > 0) !== (mb > 0)) return ma > 0 ? -1 : 1;
+      if (!!nextNeed[a[0]] !== !!nextNeed[b[0]]) return nextNeed[a[0]] ? -1 : 1;
+      return mb - ma || a[0].localeCompare(b[0]);
+    });
+  }
+  const rows = list.map(([m, n]) => `<div class="mat${have(m) >= n ? " done" : ""}">
       <span class="name">${esc(m)}${shortName(m)} <span class="mono small muted">/ ${n}</span></span>${stepper(m, "m")}${pill(n, m)}
       <div class="extra">${whereList(m)}${usedFor(m, q)}</div></div>`).join("");
-  return `<div class="tools">${scopeBar()}<input id="search" class="search" type="search" placeholder="Search parts" aria-label="Search parts" value="${esc(prefs.search)}"></div>
+  if (rows) return rows;
+  return `<p class="empty">${searching ? `No part still needed matches “${esc(prefs.search.trim())}”. Try the full name or the in-game short name.` : "Nothing left to collect here."}</p>`;
+}
+function renderMaterials(q) {
+  return `<div class="tools">${scopeBar()}<input id="search" class="search" type="search" placeholder="Search all parts: GPU, electrical…" aria-label="Search all parts" value="${esc(prefs.search)}"></div>
     <div class="row"><label class="check small"><input type="checkbox" id="hide-done"${state.hideDone ? " checked" : ""}> Hide parts I already have</label>
       <button class="btn tiny" data-act="copy-list">Copy raid list</button></div>
-    ${LEGEND}<div class="list" id="matlist">${rows || `<p class="empty">Nothing left to collect here.</p>`}</div>
+    ${LEGEND}<div class="list" id="matlist">${materialRows(q)}</div>
     <p class="small muted">Found a part somewhere else? <a href="${REPO}/issues/new?template=location.yml" target="_blank" rel="noopener">Report the location</a>.</p>`;
 }
 
+// A place matches by its own name or by the parts reported there.
+function locationRows(q) {
+  const query = prefs.placeSearch.trim();
+  let list;
+  if (query) {
+    const nextNeed = q[0] ? level(q[0]).c : {};
+    list = Object.keys(LOCS).map(id => {
+      const name = queryScore(query, [LOCS[id].name]);
+      const parts = partsAt(id);
+      const matching = parts.filter(m => materialScore(query, m));
+      if (!name && !matching.length) return null;
+      const items = (name ? parts : matching).map(m => ({ m, conf: WHERE[m].find(e => e.startsWith(id + ":")).split(":")[1], hot: (nextNeed[m] || 0) > have(m) }));
+      return { id, items, score: Math.max(name, ...matching.map(m => materialScore(query, m))) * nearness(id) };
+    }).filter(Boolean).sort((a, b) => b.score - a.score);
+  } else {
+    list = rankLocations(scopeKeys(q), q[0]);
+  }
+  const rows = list.map(s => stop(s, true)).join("");
+  return rows || `<p class="empty">${query ? `No place or part matches “${esc(query)}”.` : "Nothing left to collect here."}</p>`;
+}
 function renderLocations(q) {
-  const rows = rankLocations(scopeKeys(q), q[0]).map(s => stop(s, true)).join("");
-  return `<div class="tools">${scopeBar()}</div>${LEGEND}
+  return `<div class="tools">${scopeBar()}<input id="place-search" class="search" type="search" placeholder="Search places or parts" aria-label="Search places or parts" value="${esc(prefs.placeSearch)}"></div>${LEGEND}
     <p class="small muted">${rankingNote()} Select coordinates to copy them.</p>
-    <div class="list" style="padding-block:12px">${rows || `<p class="empty">Nothing left to collect here.</p>`}</div>`;
+    <div class="list" style="padding-block:12px" id="placelist">${locationRows(q)}</div>`;
 }
 
 function renderStations(q) {
@@ -449,7 +614,7 @@ function renderAbout() {
     <h2>Spoiler note</h2>
     <p>This page lists locations and costs that you could otherwise discover yourself. Using it may change how the game feels.</p>
     <h2>About the map</h2>
-    <p>The Map tab uses in-game screenshots and shows only the places listed here. The map itself belongs to MADFINGER Games, and we will remove it if they ask. For crates and every other marker, try <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> or <a href="https://zoneintel.gg/maps/lamang" target="_blank" rel="noopener">Zone Intel</a>.</p>
+    <p>The Map tab uses in-game screenshots with session icons removed, and shows only the places listed here. Some named spots are expected to hold certain parts from their type, which is marked ◐ until players confirm it. The map itself belongs to MADFINGER Games, and we will remove it if they ask. For crates and every other marker, try <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> or <a href="https://zoneintel.gg/maps/lamang" target="_blank" rel="noopener">Zone Intel</a>.</p>
     <h2>Your data</h2>
     <p>Your parts, builds and faction are saved automatically in this browser, and the page reopens as you left it. There is no account, cookies or analytics, and nothing is sent anywhere. Clearing your browser data erases it, and private windows may not keep it, so use Export to back it up or move it to another device.</p>
     <div class="row">${deleteControls()}</div>
@@ -461,10 +626,51 @@ function renderAbout() {
 
 // ---------- Map ----------
 // SVG units match the map grid: X stays X, and Y is flipped so north is up. One unit is 100 m.
-const MAP = { x0: 94, x1: 262, y0: 96, y1: 184, minW: 14 };
+const MAP = { x0: 94, x1: 262, y0: 96, y1: 185, minW: 8 };
 const MAP_W = MAP.x1 - MAP.x0, MAP_H = MAP.y1 - MAP.y0, MAP_ASPECT = MAP_W / MAP_H;
 const flipY = y => MAP.y1 - y;
 const mapPrefs = { view: null, filter: "missing", selected: null, drag: null };
+// Detail tiles load only for the part of the map on screen. Without them the overview still works.
+const mapTiles = { manifest: null, group: null, loaded: new Map() };
+fetch("map/tiles.json?v=1").then(r => r.json()).then(m => { mapTiles.manifest = m; mapDraw(); }).catch(() => {});
+
+function drawTiles(svg, v) {
+  const group = document.getElementById("map-tiles");
+  if (group !== mapTiles.group) { mapTiles.group = group; mapTiles.loaded.clear(); }
+  const manifest = mapTiles.manifest;
+  if (!manifest || !group) return;
+  const density = svg.clientWidth * (window.devicePixelRatio || 1) / v.w;
+  const levels = density > 30 ? ["1", "2"] : density > 10 ? ["1"] : [];
+  const wanted = new Set();
+  const h = v.w / MAP_ASPECT;
+  levels.forEach(level => {
+    const info = manifest.levels[level], step = manifest.tile / info.scale;
+    info.tiles.forEach(name => {
+      const [col, row] = name.split("_").map(Number);
+      const x = MAP.x0 + col * step, y = row * step;
+      const tw = Math.min(step, info.width / info.scale - col * step), th = Math.min(step, info.height / info.scale - row * step);
+      if (x > v.x + v.w || x + tw < v.x || y > v.y + h || y + th < v.y) return;
+      const key = `${level}/${name}`;
+      wanted.add(key);
+      if (mapTiles.loaded.has(key)) return;
+      const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+      image.setAttribute("href", `map/tiles/${key}.jpg?v=1`);
+      image.setAttribute("x", x);
+      image.setAttribute("y", y);
+      image.setAttribute("width", tw);
+      image.setAttribute("height", th);
+      image.setAttribute("preserveAspectRatio", "none");
+      image.dataset.level = level;
+      // Level 2 stays on top of level 1, whatever order they arrive in.
+      const firstFine = group.querySelector('image[data-level="2"]');
+      if (level === "1" && firstFine) group.insertBefore(image, firstFine); else group.appendChild(image);
+      mapTiles.loaded.set(key, image);
+    });
+  });
+  mapTiles.loaded.forEach((image, key) => {
+    if (!wanted.has(key)) { image.remove(); mapTiles.loaded.delete(key); }
+  });
+}
 
 function mapHome() {
   const faction = FACTIONS[state.faction];
@@ -497,16 +703,17 @@ function renderMap(q) {
   mapPrefs.view = mapPrefs.view || mapHome();
   const need = needs(q.slice(0, 5));
   const opt = (v, t) => `<option value="${esc(v)}"${mapPrefs.filter === v ? " selected" : ""}>${esc(t)}</option>`;
-  const general = Object.values(LOCS).filter(loc => !loc.everywhere && !locationPoints(loc).length).map(loc => loc.name);
+  const common = Object.values(LOCS).filter(loc => loc.everywhere).map(loc => loc.name);
   return `<div class="tools"><span class="row"><label class="small" for="map-filter">Show</label>
       <select id="map-filter" class="search">${opt("missing", "What I need next")}${opt("all", "All places")}${ALL_MATERIALS.map(m => opt(m, m + (need[m] > have(m) ? " · needed" : ""))).join("")}</select></span>
+      <div class="combo"><input class="search" id="mapfind-input" role="combobox" aria-expanded="false" aria-controls="mapfind-list" aria-autocomplete="list" autocomplete="off" placeholder="Find a part or place" aria-label="Find a part or place on the map"><ul class="combo-list" id="mapfind-list" role="listbox" aria-label="Matches" hidden></ul></div>
       <span class="seg" role="group" aria-label="Map zoom"><button data-act="zoom" data-v="in" aria-label="Zoom in">+</button><button data-act="zoom" data-v="out" aria-label="Zoom out">−</button><button data-act="zoom" data-v="home">My area</button><button data-act="zoom" data-v="all">Whole map</button></span></div>
     <div class="mapbox"><svg id="map" role="img" aria-label="Map of Lamang with places where parts are reported" preserveAspectRatio="xMidYMid slice">
-      <image href="map/lamang.jpg?v=2" x="${MAP.x0}" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"></image>
-      <g id="map-marks"></g></svg></div>
-    <p class="small muted"><span class="dot zn"></span> place with reported parts &nbsp; <span class="dot bs"></span> your base. One grid square is 1 km. Drag to move, scroll or use the buttons to zoom, select a marker for details.</p>
+      <image href="map/lamang.jpg?v=3" x="${MAP.x0}" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"></image>
+      <g id="map-tiles"></g><g id="map-marks"></g></svg></div>
+    <p class="small muted"><span class="dot zn"></span> exact position &nbsp; <span class="dot rg"></span> rough position &nbsp; <span class="dot bs"></span> base. One big grid square is 1 km. Drag to move, scroll or use the buttons to zoom, select a marker for details.</p>
     <div class="panel" id="map-detail"></div>
-    <p class="small muted">Places with no known position: ${esc(general.join(", "))}. Building Material Crates and other common spots are not marked because they are all over the map.</p>
+    <p class="small muted">Not marked, because they are all over the map: ${esc(common.join(", "))}.</p>
     <p class="small muted">Map made from in-game screenshots, with session icons retouched out. It belongs to MADFINGER Games and will be removed on request.</p>`;
 }
 function mapDraw() {
@@ -514,6 +721,7 @@ function mapDraw() {
   if (!svg) return;
   const v = mapPrefs.view, h = v.w / MAP_ASPECT;
   svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${h}`);
+  drawTiles(svg, v);
   const r = v.w * 0.0085, font = v.w * 0.015, sw = v.w * 0.002;
   const grid = [];
   for (let x = 100; x <= 260; x += 10) {
@@ -527,14 +735,22 @@ function mapDraw() {
   // Several places can share one rough position, for example inside Tiger Bay. They get one label.
   const all = mapPlaces(queue());
   const labelled = new Set();
+  const taken = [];
+  const roomFor = (x, y, width) => {
+    const free = !taken.some(t => x < t.x + t.width && t.x < x + width && Math.abs(y - t.y) < font * 1.5);
+    if (free) taken.push({ x, y, width });
+    return free;
+  };
   const places = [...all].sort((a, b) => b.on - a.on).map(p => {
     const x = p.x, y = flipY(p.y), s = r * 1.5, chosen = (mapPrefs.selected || []).includes(p.id);
     const ring = chosen ? `<circle cx="${x}" cy="${y}" r="${s * 1.7}" fill="none" class="map-ring" stroke-width="${sw * 1.5}"></circle>` : "";
     const spot = `${p.x},${p.y}`, others = all.filter(o => o.on && `${o.x},${o.y}` === spot).length - 1;
-    const showLabel = p.on && v.w < 100 && !labelled.has(spot);
+    const text = `${LOCS[p.id].name}${others ? ` +${others}` : ""}`;
+    const showLabel = p.on && v.w < 100 && !labelled.has(spot) && roomFor(x, y, text.length * font * 0.56 + s * 1.3);
     if (showLabel) labelled.add(spot);
-    const label = showLabel ? `<text x="${x + s * 1.3}" y="${y + font * 0.35}" font-size="${font}" class="map-text">${esc(LOCS[p.id].name)}${others ? ` +${others}` : ""}</text>` : "";
-    return `${ring}<polygon points="${x},${y - s} ${x + s},${y} ${x},${y + s} ${x - s},${y}" opacity="${p.on ? 1 : 0.25}" class="map-place" stroke-width="${sw}"></polygon>${label}`;
+    const label = showLabel ? `<text x="${x + s * 1.3}" y="${y + font * 0.35}" font-size="${font}" class="map-text">${esc(text)}</text>` : "";
+    const rough = !LOCS[p.id].at;
+    return `${ring}<polygon points="${x},${y - s} ${x + s},${y} ${x},${y + s} ${x - s},${y}" opacity="${p.on ? 1 : 0.25}" class="map-place${rough ? " rough" : ""}" stroke-width="${rough ? sw * 2 : sw}"></polygon>${label}`;
   });
   const bases = Object.entries(FACTIONS).map(([id, f]) => {
     const mine = id === state.faction, q = r * (mine ? 1.3 : 0.9);
@@ -622,13 +838,6 @@ function renderToast() {
   el.innerHTML = `<span>${esc(prefs.message)}</span>${prefs.undo ? `<button class="btn tiny" data-act="undo">Undo</button>` : ""}`;
 }
 
-function applySearch() {
-  document.querySelectorAll("#matlist .mat").forEach(row => {
-    const miss = !!prefs.search && !row.dataset.name.includes(prefs.search.toLowerCase());
-    row.hidden = miss || (state.hideDone && row.dataset.done === "true" && !prefs.search);
-  });
-}
-
 function render() {
   const activeId = document.activeElement && document.activeElement.id;
   const q = queue();
@@ -648,9 +857,13 @@ function render() {
     : state.tab === "stations" ? renderStations(q)
     : renderAbout();
   mapDraw();
-  applySearch();
   renderToast();
-  if (activeId && activeId !== "log-part" && document.getElementById(activeId)) document.getElementById(activeId).focus();
+  if (activeId && document.getElementById(activeId)) {
+    const el = document.getElementById(activeId);
+    el.focus();
+    // Keeps the cursor at the end of a search box after a redraw.
+    if (el.type === "search") el.setSelectionRange(el.value.length, el.value.length);
+  }
 }
 function showTab(v) {
   state.tab = v;
@@ -695,22 +908,52 @@ document.addEventListener("change", e => {
   else if (t.dataset.act === "have") setHave(t.dataset.m, t.value);
   else if (t.id === "import" && t.files[0]) importBackup(t.files[0]);
 });
+const comboName = el => el && el.id && el.id.endsWith("-input") && combos[el.id.slice(0, -6)] ? el.id.slice(0, -6) : null;
 document.addEventListener("input", e => {
-  if (e.target.id === "search") { prefs.search = e.target.value; applySearch(); }
+  const t = e.target;
+  if (t.id === "search") { prefs.search = t.value; document.getElementById("matlist").innerHTML = materialRows(queue()); }
+  else if (t.id === "place-search") { prefs.placeSearch = t.value; document.getElementById("placelist").innerHTML = locationRows(queue()); }
+  else if (comboName(t)) comboOpen(comboName(t), t.value);
+});
+document.addEventListener("focusin", e => {
+  if (comboName(e.target) && !comboState.quiet) comboOpen(comboName(e.target), e.target.value);
+});
+document.addEventListener("focusout", e => {
+  if (comboName(e.target)) comboClose();
+});
+// mousedown, because a click would first take the focus away and close the list.
+document.addEventListener("mousedown", e => {
+  const item = e.target.closest && e.target.closest("[data-combo-index]");
+  if (!item) return;
+  e.preventDefault();
+  comboChoose(comboState.name, +item.dataset.comboIndex);
 });
 document.getElementById("log").addEventListener("submit", e => {
   e.preventDefault();
-  const part = document.getElementById("log-part"), qty = document.getElementById("log-qty");
-  if (!logLoot(part.value, Math.max(1, Math.floor(+qty.value) || 1))) return;
-  part.value = "";
-  qty.value = 1;
-  part.focus();
+  comboSubmit("log");
 });
 document.addEventListener("keydown", e => {
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
   if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
-    document.getElementById("log-part").focus();
+    document.getElementById("log-input").focus();
+  }
+  const name = comboName(e.target);
+  if (name) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (comboState.name !== name) comboOpen(name, e.target.value);
+      const count = comboState.items.length;
+      if (count) {
+        comboState.active = (comboState.active + (e.key === "ArrowDown" ? 1 : count - 1 + (comboState.active < 0 ? 1 : 0))) % count;
+        comboPaint();
+      }
+    } else if (e.key === "Enter" && name === "mapfind") {
+      e.preventDefault();
+      comboSubmit(name);
+    } else if (e.key === "Escape") {
+      comboClose();
+    }
   }
   if (e.target.getAttribute("role") === "tab" && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
     const i = TABS.findIndex(([v]) => v === state.tab);
@@ -724,8 +967,6 @@ window.addEventListener("storage", e => {
   if (e.key === STORAGE_KEY) { state = load(); render(); }
 });
 
-document.getElementById("log-list").innerHTML = ALL_MATERIALS.map(m =>
-  `<option value="${esc(m)}">${SHORT_NAMES[m] && SHORT_NAMES[m] !== m ? esc(SHORT_NAMES[m]) : ""}</option>`).join("");
 const fromHash = location.hash.slice(1);
 if (TABS.some(([v]) => v === fromHash)) state.tab = fromHash;
 render();
