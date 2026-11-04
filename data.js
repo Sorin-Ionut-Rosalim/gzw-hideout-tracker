@@ -32,7 +32,7 @@ const ROOMS = [
       { d: "Diesel Generator, 18 kW", c: { "Steel": 2, "Mechanical Parts": 2, "Motor Oil": 1, "Dynamo": 1, "Plumbing Parts": 2, "Electrical Parts": 2 } },
     ] },
   ] },
-  { name: "Laboratory", unlock: "Unlocks at Lab Rat rank 2.", stations: [
+  { name: "Laboratory", unlock: "Unlocks at Lab Rat rank 2.", needs: ["labRat"], stations: [
     { id: "heat", name: "Heat Source", levels: [
       { d: "Open Fire Pit", c: { "Steel": 3, "Construction Materials": 2, "Wood": 1 } },
       { c: { "Steel": 4, "Plumbing Parts": 2, "Construction Materials": 3, "Burner Head": 1 } },
@@ -69,7 +69,7 @@ const ROOMS = [
       { cash: 35000, c: { "Steel": 10, "Electrical Parts": 5, "Plumbing Parts": 5, "PC Fan": 3, "HEPA Filter": 1 } },
     ] },
   ] },
-  { name: "Electronics Workshop", unlock: "Unlocks at Lab Rat rank 2 and Artisan rank 2.", stations: [
+  { name: "Electronics Workshop", unlock: "Unlocks at Lab Rat rank 2 and Artisan rank 2.", needs: ["labRat", "artisan"], stations: [
     { id: "hw", name: "Hardware", levels: [
       { d: "Scavenged PC Rig", c: { "Motherboard": 1, "Graphics Card": 1, "CPU": 1, "PC Fan": 1, "RAM": 1, "Power Supply": 1 } },
       { c: { "Motherboard": 1, "Graphics Card": 1, "CPU": 1, "Plumbing Parts": 2, "RAM": 3, "Power Supply": 1 } },
@@ -106,6 +106,39 @@ const ORDER = ["gen:1", "heat:1", "ext:1", "react:1", "filt:1", "glass:1", "ana:
   "heat:2", "ext:2", "react:2", "filt:2", "glass:2", "lstor:2", "ana:2", "vent:2",
   "wstor:2", "mach:2", "hw:2", "sw:2", "micro:2", "rf:2",
   "heat:3", "react:3", "lstor:3", "hw:3", "micro:3", "wstor:3"];
+
+const RANKS = { labRat: "Lab Rat rank 2", artisan: "Artisan rank 2" };
+
+// Levels that need another level first. The Oil Tank, filter and PH Meter come from GamesHorizon;
+// the powered stations need the Generator, according to Worldeka.
+const REQUIRES = {
+  "ext:1": ["heat:1"],
+  "filt:1": ["ext:1"],
+  "ana:1": ["glass:1", "gen:1"],
+  "lstor:1": ["gen:1"],
+  "vent:1": ["gen:1"],
+  "hw:1": ["gen:1"],
+  "rf:1": ["gen:1"],
+};
+
+// Short names shown on inventory items in-game. Seen on real inventory screens, except MParts (player report).
+const SHORT_NAMES = {
+  "Electrical Parts": "EParts",
+  "Plumbing Parts": "PParts",
+  "Mechanical Parts": "MParts",
+  "Motor Oil": "MOil",
+  "Fabrics": "Fab",
+  "Circuit Board": "PCB",
+  "Graphics Card": "GPU",
+  "Power Supply": "PSU",
+  "Analog Indicator": "AInd",
+  "Soldering Iron": "SIron",
+  "Civilian Software": "CivSoft",
+  "Motherboard": "MBoard",
+  "PC Fan": "Fan",
+  "Laboratory Flask": "Flask",
+  "Construction Materials": "Construction Mat",
+};
 
 // at: map coordinates as shown in-game. pos: rough position when no exact one is known, used only for distance.
 // everywhere: a type of place found all over the map. src: where the location comes from.

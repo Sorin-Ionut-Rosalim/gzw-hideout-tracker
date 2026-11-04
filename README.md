@@ -6,11 +6,17 @@ A small page for Gray Zone Warfare players: what to build next in the hideout, w
 
 ## Features
 
+**[Open the tracker](https://sorin-ionut-rosalim.github.io/gzw-hideout-tracker/)**
+
 - All 36 hideout levels with parts and cash costs
 - A suggested build order, or pick your own next build
-- Missing parts for the next build, the next 5, or the whole hideout
+- Log loot in seconds, using full names or the short names shown in-game
+- See what is ready to build now and what is almost there
+- Missing parts for the next build, the next 5, or the whole hideout, and a raid list to copy to your squad
 - Possible locations and coordinates for each part, with sources and a confidence mark
 - Pick your faction to sort locations by distance from your base
+- Untick vendor ranks you lack, and locked rooms move to the end
+- Undo after building or logging, light and dark themes, works offline after the first visit
 - Everything saved automatically in your browser, with export, import and delete
 
 There is no map on purpose: we have no permission to host one. Coordinates match the in-game grid, so you can look them up in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
@@ -33,6 +39,10 @@ No build step and no dependencies. Open `index.html` in a browser, or serve the 
 | `data.js` | All game data: costs, build order, locations, sources |
 | `app.js` | Logic and rendering, with progress stored in `localStorage` |
 | `styles.css` | Styles, light and dark |
+| `sw.js` | Offline support, network first |
+| `tests/check-data.mjs` | Checks `data.js` for mistakes |
+
+Run the data check with `node tests/check-data.mjs`.
 
 Most corrections only touch `data.js`. After changing `data.js`, `app.js` or `styles.css`, raise the `?v=` number in `index.html`, so browsers load the new files together.
 

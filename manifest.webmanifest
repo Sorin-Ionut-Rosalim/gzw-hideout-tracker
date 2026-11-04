@@ -1,0 +1,14 @@
+{
+  "name": "GZW Hideout Tracker",
+  "short_name": "GZW Hideout",
+  "description": "What to build next in your Gray Zone Warfare hideout, what you are missing and where to find it.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#171b15",
+  "theme_color": "#171b15",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
