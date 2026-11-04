@@ -80,6 +80,9 @@ label.btn { display: inline-block; cursor: pointer; }
 
 .src { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 13px; color: var(--muted); }
 .src > span { display: inline-flex; flex-wrap: wrap; gap: 0 5px; align-items: baseline; min-width: 0; }
+.km { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+.warn { color: var(--accent); font-weight: 600; }
+select.search { max-width: 340px; }
 .mark { font-family: var(--mono); font-size: 12px; font-weight: 600; }
 .mark.r { color: var(--good); }
 .mark.t { color: var(--warn); }

@@ -11,7 +11,15 @@ const SOURCES = {
   wiki: { name: "GZW Wiki", url: "https://grayzonewarfaregame.wiki/hideout/materials/" },
   treyex: { name: "Treyex Gaming", url: "https://www.treyexgaming.com/gray-zone-warfare-best-loot-locations/" },
   games: { name: "Games.gg", url: "https://games.gg/gray-zone-warfare/guides/hideout-rooms-stations-build-order/" },
+  twinfinite: { name: "Twinfinite", url: "https://twinfinite.net/guides/gray-zone-warfare-map-all-poi-size/" },
   player: { name: "Player reports" },
+};
+
+// Base positions are approximate: guides only give the map square.
+const FACTIONS = {
+  csi: { name: "Crimson Shield International", base: [135, 175] },
+  lri: { name: "Lamang Recovery Initiative", base: [205, 175] },
+  mithras: { name: "Mithras Security Systems", base: [172, 109] },
 };
 
 // Costs come from GZW Items unless the level is listed in VERIFIED, which means checked in-game here.
@@ -99,36 +107,37 @@ const ORDER = ["gen:1", "heat:1", "ext:1", "react:1", "filt:1", "glass:1", "ana:
   "wstor:2", "mach:2", "hw:2", "sw:2", "micro:2", "rf:2",
   "heat:3", "react:3", "lstor:3", "hw:3", "micro:3", "wstor:3"];
 
-// at: map coordinates as shown in-game. src: where the location comes from.
+// at: map coordinates as shown in-game. pos: rough position when no exact one is known, used only for distance.
+// everywhere: a type of place found all over the map. src: where the location comes from.
 const LOCS = {
-  crate: { name: "Building Material Crates", tip: "Rectangular wooden crates with blue stripes. Contents vary from crate to crate.", src: ["horizon", "vortex"] },
+  crate: { name: "Building Material Crates", everywhere: true, tip: "Rectangular wooden crates with blue stripes. Contents vary from crate to crate.", src: ["horizon", "vortex"] },
   supply: { name: "Northern Reach, Supply Yard", at: "170 153", tip: "Blue workbench in the maintenance building, the shelf next to it, the offices, and the crate by the green containers.", src: ["tpose", "vortex"] },
   market: { name: "Small Marketplace", at: "181 121", tip: "Wood on the ground under the small green stilt house, next to a blue plastic bin.", src: ["tpose", "player"] },
   farm: { name: "Thavieng Farm", at: "152 130", tip: "Crate against the metal fence behind the house. Guide reports two enemies outside and one inside.", src: ["tpose", "vortex"] },
   site: { name: "Construction Site", at: "150 168", tip: "Several blue-striped crates.", src: ["tpose", "horizon"] },
   hunter: { name: "Hunter's Paradise", tip: "East side of the motel garage, pickup truck beds, and the shack between the living quarters and the range.", src: ["tpose"] },
   camps: { name: "Campsites, abandoned or trashed", at: "148 136 · 177 163 · 187 153", tip: "Tents and tables. CPUs sometimes sit on broken CRT monitors. There are many more campsites than these three.", src: ["vortex", "worldeka", "player"] },
-  mall: { name: "Tiger Bay Mall, 2nd floor", tip: "The PC World store.", src: ["tpose", "worldeka"] },
-  lantel: { name: "Lantel Office, Tiger Bay", tip: "South of the mall. Locked locker room; the code is in the office next to it.", src: ["worldeka"] },
-  lab: { name: "Tiger Bay HQ, laboratory", tip: "Several pieces of lab equipment in one room.", src: ["vortex"] },
+  mall: { name: "Tiger Bay Mall, 2nd floor", pos: [198, 129], tip: "The PC World store.", src: ["tpose", "worldeka"] },
+  lantel: { name: "Lantel Office, Tiger Bay", pos: [198, 129], tip: "South of the mall. Locked locker room; the code is in the office next to it.", src: ["worldeka"] },
+  lab: { name: "Tiger Bay HQ, laboratory", pos: [198, 129], tip: "Several pieces of lab equipment in one room.", src: ["vortex"] },
   ybl: { name: "YBL-1", at: "143 122", tip: "Dark inside, so bring a flashlight. The generator room has a keypad that a hacking tool can bypass.", src: ["tpose", "player"] },
   fort: { name: "Fort Narith, Airfield Old Entrance", at: "145 126", tip: "Crates near the old entrance, and a workbench in the fuel storage shed on the south-east side. Military base, expect heavier resistance.", src: ["tpose", "vortex"] },
   nakasa: { name: "Nakasa Village", tip: "North of Fort Narith. Blue-striped crate in the fenced storage yard.", src: ["tpose"] },
   banl: { name: "Ban Langphou", at: "152 168", tip: "Blue-striped crate inside the house.", src: ["tpose"] },
-  banpa: { name: "Ban Pa", tip: "Blue crates, and materials on the ground in the courtyard house at LZ Oscar 2.", src: ["treyex"] },
+  banpa: { name: "Ban Pa", pos: [206, 137], tip: "Blue crates, and materials on the ground in the courtyard house at LZ Oscar 2.", src: ["treyex"] },
   papa: { name: "Construction site north of LZ Papa 1", src: ["tpose"] },
   nony: { name: "Nony Village", at: "154 163", tip: "Crates and open car trunks.", src: ["tpose", "vortex"] },
   ware: { name: "Military Warehouse", at: "137 151", tip: "North of LZ Delta 4. Guarded by LAF soldiers.", src: ["tpose", "horizon"] },
   hut: { name: "Old Hut", tip: "North-west of Fort Narith, above LZ Delta 4. Crate under the front overhang. Guide reports no enemies.", src: ["tpose"] },
   pha: { name: "Pha Lang Airfield", at: "179 160", tip: "Low enemy activity but less loot, according to one guide.", src: ["tpose", "vortex"] },
-  saw: { name: "Sawmill", src: ["wiki"] },
-  cement: { name: "Cement Factory, Tiger Bay", src: ["horizon", "wiki"] },
-  kitchen: { name: "Kitchens", tip: "Restaurants and houses: stovetops and counters.", src: ["vortex", "worldeka"] },
-  garage: { name: "Garages, gas stations, workshops", src: ["vortex", "worldeka", "wiki"] },
-  office: { name: "Offices, server rooms, comms buildings", src: ["wiki"] },
-  clinic: { name: "Clinics, pharmacies, laboratories", src: ["wiki"] },
-  military: { name: "Military sites", tip: "For example Fort Narith, YBL-1 and Hunter's Paradise.", src: ["wiki"] },
-  drug: { name: "Drug huts", src: ["wiki"] },
+  saw: { name: "Sawmill", pos: [139, 146], src: ["wiki"] },
+  cement: { name: "Cement Factory, Tiger Bay", pos: [198, 129], src: ["horizon", "wiki"] },
+  kitchen: { name: "Kitchens", everywhere: true, tip: "Restaurants and houses: stovetops and counters.", src: ["vortex", "worldeka"] },
+  garage: { name: "Garages, gas stations, workshops", everywhere: true, src: ["vortex", "worldeka", "wiki"] },
+  office: { name: "Offices, server rooms, comms buildings", everywhere: true, src: ["wiki"] },
+  clinic: { name: "Clinics, pharmacies, laboratories", everywhere: true, src: ["wiki"] },
+  military: { name: "Military sites", everywhere: true, tip: "For example Fort Narith, YBL-1 and Hunter's Paradise.", src: ["wiki"] },
+  drug: { name: "Drug huts", everywhere: true, src: ["wiki"] },
 };
 
 // Each entry is "location:confidence". r = a guide or player names this spot, t = type of place only, g = educated guess with no source.

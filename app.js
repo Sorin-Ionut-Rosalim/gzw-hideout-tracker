@@ -16,8 +16,8 @@ const level = key => {
 const ALL_MATERIALS = [...new Set(ORDER.flatMap(key => Object.keys(level(key).c)))];
 
 // ---------- State ----------
-const empty = () => ({ have: {}, built: {}, used: {}, focus: null });
-const prefs = { tab: "materials", scope: "five", search: "", confirmReset: false, message: "" };
+const empty = () => ({ have: {}, built: {}, used: {}, focus: null, faction: null, tab: "materials", scope: "five" });
+const prefs = { search: "", confirmReset: false, message: "", saveFailed: false };
 
 // Keeps only what the app knows, so a damaged or edited backup cannot break the page.
 function clean(raw) {
@@ -36,14 +36,28 @@ function clean(raw) {
     }
   });
   if (ORDER.includes(raw.focus)) s.focus = raw.focus;
+  if (FACTIONS[raw.faction]) s.faction = raw.faction;
+  if (TABS.some(([v]) => v === raw.tab)) s.tab = raw.tab;
+  if (["next", "five", "all"].includes(raw.scope)) s.scope = raw.scope;
   return s;
 }
 function load() {
   try { return clean(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch { return empty(); }
 }
 let state = load();
+// Every change is saved right away, so the page reopens as it was left.
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { prefs.message = "Your browser blocked saving. Use Export to keep your progress."; }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    prefs.saveFailed = false;
+    // Asks once per visit that the browser not clear this data when disk space runs low. It may say no.
+    if (!prefs.askedPersist && navigator.storage && navigator.storage.persist) {
+      prefs.askedPersist = true;
+      navigator.storage.persist().catch(() => {});
+    }
+  } catch {
+    prefs.saveFailed = true;
+  }
   render();
 }
 
@@ -68,9 +82,31 @@ function needs(keys) {
   keys.forEach(key => Object.entries(level(key).c).forEach(([m, n]) => { out[m] = (out[m] || 0) + n; }));
   return out;
 }
-const scopeKeys = q => prefs.scope === "next" ? q.slice(0, 1) : prefs.scope === "five" ? q.slice(0, 5) : q;
+const scopeKeys = q => state.scope === "next" ? q.slice(0, 1) : state.scope === "five" ? q.slice(0, 5) : q;
 
-// Ranks locations by what is missing. Parts for the next build count three times as much.
+// Straight-line distance from the player's base to the nearest known point of a location.
+// One coordinate unit is 100 m, so 10 units are 1 km. Null when there is no faction or no position.
+function distanceKm(id) {
+  const faction = FACTIONS[state.faction], loc = LOCS[id];
+  if (!faction) return null;
+  const points = loc.at ? loc.at.split("·").map(p => p.trim().split(" ").map(Number)) : loc.pos ? [loc.pos] : [];
+  if (!points.length) return null;
+  return Math.min(...points.map(([x, y]) => Math.hypot(x - faction.base[0], y - faction.base[1]))) / 10;
+}
+// How much a location's score counts: nearby places keep it all, 5 km away keeps half, 14 km away a quarter.
+function nearness(id) {
+  if (!state.faction || LOCS[id].everywhere) return 1;
+  const km = distanceKm(id);
+  if (km === null) return 0.5;
+  return km <= 2 ? 1 : 1 / (1 + (km - 2) / 3);
+}
+const distanceLabel = id => {
+  const km = distanceKm(id);
+  return km === null ? "" : `~${km.toFixed(1)} km`;
+};
+
+// Ranks locations by what is missing and how close they are.
+// Parts for the next build count three times as much.
 function rankLocations(keys, nextKey) {
   const need = needs(keys), nextNeed = nextKey ? level(nextKey).c : {}, by = {};
   Object.entries(need).forEach(([m, n]) => {
@@ -79,7 +115,7 @@ function rankLocations(keys, nextKey) {
       const [id, conf] = entry.split(":");
       const hot = (nextNeed[m] || 0) > have(m);
       by[id] = by[id] || { id, score: 0, items: [] };
-      by[id].score += WEIGHT[conf] * (hot ? 3 : 1);
+      by[id].score += WEIGHT[conf] * (hot ? 3 : 1) * nearness(id);
       by[id].items.push({ m, conf, hot });
     });
   });
@@ -145,23 +181,25 @@ function pill(need, m) {
   return miss > 0 ? `<span class="pill miss">need ${miss}</span>` : `<span class="pill ok">have ${need}</span>`;
 }
 function whereList(m) {
-  return `<div class="src">` + [...(WHERE[m] || [])].sort((a, b) => WEIGHT[b.split(":")[1]] - WEIGHT[a.split(":")[1]]).map(entry => {
-    const [id, conf] = entry.split(":"), loc = LOCS[id];
-    return `<span><span class="mark ${conf}" aria-hidden="true">${MARK[conf]}</span>${esc(loc.name)}${loc.at ? ` <span class="mono">${esc(loc.at)}</span>` : ""}</span>`;
+  const value = entry => { const [id, conf] = entry.split(":"); return WEIGHT[conf] * nearness(id); };
+  return `<div class="src">` + [...(WHERE[m] || [])].sort((a, b) => value(b) - value(a)).map(entry => {
+    const [id, conf] = entry.split(":"), loc = LOCS[id], km = distanceLabel(id);
+    return `<span><span class="mark ${conf}" aria-hidden="true">${MARK[conf]}</span>${esc(loc.name)}${loc.at ? ` <span class="mono">${esc(loc.at)}</span>` : ""}${km ? ` <span class="km">${km}</span>` : ""}</span>`;
   }).join("") + `</div>`;
 }
 function sourceLinks(ids) {
   return ids.map(id => SOURCES[id].url ? `<a href="${SOURCES[id].url}" target="_blank" rel="noopener">${esc(SOURCES[id].name)}</a>` : esc(SOURCES[id].name)).join(", ");
 }
 function stop(s, withMarks) {
-  const loc = LOCS[s.id];
-  return `<div class="stop"><div class="stop-head"><span>${esc(loc.name)}</span>${loc.at ? `<span class="mono small muted">${esc(loc.at)}</span>` : ""}</div>
+  const loc = LOCS[s.id], km = distanceLabel(s.id);
+  const place = [loc.at, km].filter(Boolean).join(" · ");
+  return `<div class="stop"><div class="stop-head"><span>${esc(loc.name)}</span>${place ? `<span class="mono small muted">${esc(place)}</span>` : ""}</div>
     ${loc.tip ? `<p class="small muted">${esc(loc.tip)}</p>` : ""}
     <div class="tags">${s.items.map(i => `<span class="tag${i.hot ? " hot" : ""}">${withMarks ? `<span aria-hidden="true">${MARK[i.conf]}</span> ` : ""}${esc(i.m)}</span>`).join("")}</div>
     ${withMarks ? `<p class="small muted">Source: ${sourceLinks(loc.src)}</p>` : ""}</div>`;
 }
 function scopeBar() {
-  const b = (v, t) => `<button data-act="scope" data-v="${v}" aria-pressed="${prefs.scope === v}">${t}</button>`;
+  const b = (v, t) => `<button data-act="scope" data-v="${v}" aria-pressed="${state.scope === v}">${t}</button>`;
   return `<span class="seg" role="group" aria-label="Which builds to count">${b("next", "Next build")}${b("five", "Next 5 builds")}${b("all", "Whole hideout")}</span>`;
 }
 const LEGEND = `<p class="small muted"><span class="mark r">●</span> named by a guide or player &nbsp; <span class="mark t">◐</span> type of place only &nbsp; <span class="mark g">?</span> educated guess, no source yet. Spawns are never guaranteed.</p>`;
@@ -177,6 +215,10 @@ function renderHeader(q) {
      <div class="stat"><b>${money(cash)}</b><span class="label">Cash needed</span></div>`;
   document.getElementById("bar").style.width = (done / total * 100) + "%";
   document.getElementById("barwrap").setAttribute("aria-valuenow", done);
+  document.getElementById("faction-box").innerHTML =
+    `<label class="small" for="faction">Your faction</label>
+     <select id="faction" class="search"><option value="">Choose to sort locations by distance</option>${Object.entries(FACTIONS).map(([id, f]) => `<option value="${id}"${state.faction === id ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
+     <span class="small${prefs.saveFailed ? " warn" : " muted"}" role="status">${prefs.saveFailed ? "Your browser blocked saving. Use Export to keep your progress." : "Saved automatically in this browser"}</span>`;
   document.getElementById("backup").innerHTML =
     `<button class="btn tiny" data-act="export">Export</button>
      <label class="btn tiny">Import<input class="visually-hidden" id="import" type="file" accept="application/json,.json"></label>
@@ -208,7 +250,13 @@ function renderNow(q) {
     </div>
     <div class="panel"><div><span class="label">For your next 5 builds</span><h2>Where to look</h2></div>
       <div>${stops || `<p class="muted">You have everything for your next 5 builds.</p>`}</div>
-      <p class="small muted">Orange parts are needed for the next build. Best match to your missing parts first; distance and danger are not counted.</p></div>`;
+      <p class="small muted">Orange parts are needed for the next build. ${rankingNote()}</p></div>`;
+}
+
+function rankingNote() {
+  return state.faction
+    ? "Sorted by your missing parts and straight-line distance from your base. Danger and landing zones are not counted."
+    : "Sorted by your missing parts. Choose your faction above to count distance too.";
 }
 
 function renderMaterials(q) {
@@ -230,7 +278,7 @@ function renderMaterials(q) {
 function renderLocations(q) {
   const rows = rankLocations(scopeKeys(q), q[0]).map(s => stop(s, true)).join("");
   return `<div class="tools">${scopeBar()}</div>${LEGEND}
-    <p class="small muted">Best match to your missing parts first. Distance and danger are not counted, because they depend on your faction and gear.</p>
+    <p class="small muted">${rankingNote()}</p>
     <div class="list" style="padding-block:12px">${rows || `<p class="empty">Nothing left to collect here.</p>`}</div>`;
 }
 
@@ -261,6 +309,7 @@ function renderAbout() {
       <li>Locations marked <span class="mark g">?</span> have no source. They are just where we would look first.</li>
       <li>The first 12 steps of the build order follow a guide. The rest is our suggestion, from cheap to expensive.</li>
       <li>Coordinates match the in-game map grid. One unit is about 100 m, according to community map data.</li>
+      <li>Distances are straight lines from your base, and base positions are approximate. Places without a known position rank lower. Helicopter routes, Ground Zero and enemies are not counted.</li>
       <li>Some guides disagree on unlock requirements, so check the hideout screen in-game.</li>
     </ul>
     <h2>Spoiler note</h2>
@@ -268,7 +317,7 @@ function renderAbout() {
     <h2>Looking for a map?</h2>
     <p>This site has no map on purpose, because we have no permission to host one. <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> is a great interactive one: paste the coordinates there.</p>
     <h2>Your data</h2>
-    <p>Your progress is stored only in this browser, with no account, cookies or analytics. Use Export to back it up or move it to another device.</p>
+    <p>Your parts, builds and faction are saved automatically in this browser, and the page reopens as you left it. There is no account, cookies or analytics, and nothing is sent anywhere. Clearing your browser data erases it, and private windows may not keep it, so use Export to back it up or move it to another device.</p>
     <h2>Sources</h2>
     <p>${list}. Thanks to everyone who maintains them.</p>
     <p class="small muted">Fan project, not affiliated with or endorsed by MADFINGER Games. Gray Zone Warfare and its content belong to their owners.</p>
@@ -286,11 +335,11 @@ function render() {
   const q = queue();
   renderHeader(q);
   renderNow(q);
-  document.getElementById("tabs").innerHTML = TABS.map(([v, t]) => `<button role="tab" data-act="tab" data-v="${v}" aria-selected="${prefs.tab === v}">${t}</button>`).join("");
+  document.getElementById("tabs").innerHTML = TABS.map(([v, t]) => `<button role="tab" data-act="tab" data-v="${v}" aria-selected="${state.tab === v}">${t}</button>`).join("");
   document.getElementById("view").innerHTML =
-    prefs.tab === "materials" ? renderMaterials(q)
-    : prefs.tab === "locations" ? renderLocations(q)
-    : prefs.tab === "stations" ? renderStations(q)
+    state.tab === "materials" ? renderMaterials(q)
+    : state.tab === "locations" ? renderLocations(q)
+    : state.tab === "stations" ? renderStations(q)
     : renderAbout();
   applySearch();
   if (activeId && document.getElementById(activeId)) document.getElementById(activeId).focus();
@@ -313,17 +362,23 @@ document.addEventListener("click", e => {
   else if (act === "reset") { prefs.confirmReset = true; render(); }
   else if (act === "reset-no") render();
   else if (act === "reset-yes") { state = empty(); prefs.message = "Progress erased."; save(); }
-  else if (act === "tab") { prefs.tab = v; history.replaceState(null, "", "#" + v); render(); }
-  else if (act === "scope") { prefs.scope = v; render(); }
+  else if (act === "tab") { state.tab = v; history.replaceState(null, "", "#" + v); save(); }
+  else if (act === "scope") { state.scope = v; save(); }
 });
 document.addEventListener("change", e => {
-  if (e.target.dataset.act === "have") setHave(e.target.dataset.m, e.target.value);
+  if (e.target.id === "faction") { state.faction = FACTIONS[e.target.value] ? e.target.value : null; save(); }
+  else if (e.target.dataset.act === "have") setHave(e.target.dataset.m, e.target.value);
   else if (e.target.id === "import" && e.target.files[0]) importBackup(e.target.files[0]);
 });
 document.addEventListener("input", e => {
   if (e.target.id === "search") { prefs.search = e.target.value; applySearch(); }
 });
 
+// With the page open in two tabs, keep both up to date.
+window.addEventListener("storage", e => {
+  if (e.key === STORAGE_KEY) { state = load(); render(); }
+});
+
 const fromHash = location.hash.slice(1);
-if (TABS.some(([v]) => v === fromHash)) prefs.tab = fromHash;
+if (TABS.some(([v]) => v === fromHash)) state.tab = fromHash;
 render();
