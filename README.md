@@ -19,7 +19,7 @@ A small page for Gray Zone Warfare players: what to build next in the hideout, w
 - Undo after building or logging, light and dark themes, works offline after the first visit
 - Everything saved automatically in your browser, with export, import and delete
 
-There is no map on purpose: we have no permission to host one. Coordinates match the in-game grid, so you can look them up in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
+The Map tab uses in-game screenshots and shows only the places in this tracker. The map belongs to MADFINGER Games and will be removed if they ask. Coordinates match the in-game grid, so you can also use them in-game or on [GZW Tac Map](https://gzwtacmap.com/maps/lamang).
 
 ## Corrections
 

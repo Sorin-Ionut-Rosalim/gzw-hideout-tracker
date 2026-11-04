@@ -15,11 +15,11 @@ const SOURCES = {
   player: { name: "Player reports" },
 };
 
-// Base positions are approximate: guides only give the map square.
+// Base positions are read from the in-game map.
 const FACTIONS = {
-  csi: { name: "Crimson Shield International", base: [135, 175] },
-  lri: { name: "Lamang Recovery Initiative", base: [205, 175] },
-  mithras: { name: "Mithras Security Systems", base: [172, 109] },
+  csi: { name: "Crimson Shield International", base: [134, 171] },
+  lri: { name: "Lamang Recovery Initiative", base: [208, 172] },
+  mithras: { name: "Mithras Security Systems", base: [172, 108] },
 };
 
 // Costs come from GZW Items unless the level is listed in VERIFIED, which means checked in-game here.

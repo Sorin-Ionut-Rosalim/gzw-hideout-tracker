@@ -5,7 +5,7 @@ const STORAGE_KEY = "gzw-hideout-tracker";
 const REPO = "https://github.com/Sorin-Ionut-Rosalim/gzw-hideout-tracker";
 const MARK = { r: "●", t: "◐", g: "?" };
 const WEIGHT = { r: 3, t: 1, g: 0.5 };
-const TABS = [["materials", "Materials"], ["locations", "Locations"], ["stations", "Stations"], ["about", "About"]];
+const TABS = [["materials", "Materials"], ["locations", "Locations"], ["map", "Map"], ["stations", "Stations"], ["about", "About"]];
 const THEMES = ["auto", "light", "dark"];
 
 const STATIONS = {};
@@ -442,14 +442,14 @@ function renderAbout() {
       <li>Locations marked <span class="mark g">?</span> have no source. They are just where we would look first.</li>
       <li>The first 12 steps of the build order follow a guide. The rest is our suggestion, from cheap to expensive.</li>
       <li>Coordinates match the in-game map grid. One unit is about 100 m, according to community map data.</li>
-      <li>Distances are straight lines from your base, and base positions are approximate. Places without a known position rank lower. Helicopter routes, Ground Zero and enemies are not counted.</li>
+      <li>Distances are straight lines from your base. Places without a known position rank lower. Helicopter routes, Ground Zero and enemies are not counted.</li>
       <li>“Ready to build” checks each level on its own. Two levels may both need the same parts, so check the numbers before you build both.</li>
       <li>Some guides disagree on unlock requirements, so check the hideout screen in-game.</li>
     </ul>
     <h2>Spoiler note</h2>
     <p>This page lists locations and costs that you could otherwise discover yourself. Using it may change how the game feels.</p>
-    <h2>Looking for a map?</h2>
-    <p>This site has no map on purpose, because we have no permission to host one. <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> and <a href="https://zoneintel.gg/maps/lamang" target="_blank" rel="noopener">Zone Intel</a> are interactive ones.</p>
+    <h2>About the map</h2>
+    <p>The Map tab uses in-game screenshots and shows only the places listed here. The map itself belongs to MADFINGER Games, and we will remove it if they ask. For crates and every other marker, try <a href="https://gzwtacmap.com/maps/lamang" target="_blank" rel="noopener">GZW Tac Map</a> or <a href="https://zoneintel.gg/maps/lamang" target="_blank" rel="noopener">Zone Intel</a>.</p>
     <h2>Your data</h2>
     <p>Your parts, builds and faction are saved automatically in this browser, and the page reopens as you left it. There is no account, cookies or analytics, and nothing is sent anywhere. Clearing your browser data erases it, and private windows may not keep it, so use Export to back it up or move it to another device.</p>
     <div class="row">${deleteControls()}</div>
@@ -458,6 +458,162 @@ function renderAbout() {
     <p class="small muted">Fan project, not affiliated with or endorsed by MADFINGER Games. Gray Zone Warfare and its content belong to their owners.</p>
   </div>`;
 }
+
+// ---------- Map ----------
+// SVG units match the map grid: X stays X, and Y is flipped so north is up. One unit is 100 m.
+const MAP = { x0: 94, x1: 262, y0: 96, y1: 184, minW: 14 };
+const MAP_W = MAP.x1 - MAP.x0, MAP_H = MAP.y1 - MAP.y0, MAP_ASPECT = MAP_W / MAP_H;
+const flipY = y => MAP.y1 - y;
+const mapPrefs = { view: null, filter: "missing", selected: null, drag: null };
+
+function mapHome() {
+  const faction = FACTIONS[state.faction];
+  if (!faction) return { x: MAP.x0, y: 0, w: MAP_W };
+  const w = 84;
+  return mapClamp({ x: faction.base[0] - w / 2, y: flipY(faction.base[1]) - w / MAP_ASPECT / 2, w });
+}
+function mapClamp(v) {
+  v.w = Math.min(MAP_W, Math.max(MAP.minW, v.w));
+  v.x = Math.min(MAP.x1 - v.w, Math.max(MAP.x0, v.x));
+  v.y = Math.min(MAP_H - v.w / MAP_ASPECT, Math.max(0, v.y));
+  return v;
+}
+function partsAt(id) {
+  return Object.keys(WHERE).filter(m => WHERE[m].some(entry => entry.startsWith(id + ":")));
+}
+function mapPlaces(q) {
+  const need = needs(q.slice(0, 5));
+  const missing = Object.keys(need).filter(m => need[m] > have(m));
+  const wanted = mapPrefs.filter === "missing" ? missing : mapPrefs.filter === "all" ? null : [mapPrefs.filter];
+  const out = [];
+  Object.entries(LOCS).forEach(([id, loc]) => {
+    if (loc.everywhere) return;
+    const on = !wanted || partsAt(id).some(m => wanted.includes(m));
+    locationPoints(loc).forEach(([x, y]) => out.push({ id, x, y, on }));
+  });
+  return out;
+}
+function renderMap(q) {
+  mapPrefs.view = mapPrefs.view || mapHome();
+  const need = needs(q.slice(0, 5));
+  const opt = (v, t) => `<option value="${esc(v)}"${mapPrefs.filter === v ? " selected" : ""}>${esc(t)}</option>`;
+  const general = Object.values(LOCS).filter(loc => !loc.everywhere && !locationPoints(loc).length).map(loc => loc.name);
+  return `<div class="tools"><span class="row"><label class="small" for="map-filter">Show</label>
+      <select id="map-filter" class="search">${opt("missing", "What I need next")}${opt("all", "All places")}${ALL_MATERIALS.map(m => opt(m, m + (need[m] > have(m) ? " · needed" : ""))).join("")}</select></span>
+      <span class="seg" role="group" aria-label="Map zoom"><button data-act="zoom" data-v="in" aria-label="Zoom in">+</button><button data-act="zoom" data-v="out" aria-label="Zoom out">−</button><button data-act="zoom" data-v="home">My area</button><button data-act="zoom" data-v="all">Whole map</button></span></div>
+    <div class="mapbox"><svg id="map" role="img" aria-label="Map of Lamang with places where parts are reported" preserveAspectRatio="xMidYMid slice">
+      <image href="map/lamang.jpg?v=2" x="${MAP.x0}" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"></image>
+      <g id="map-marks"></g></svg></div>
+    <p class="small muted"><span class="dot zn"></span> place with reported parts &nbsp; <span class="dot bs"></span> your base. One grid square is 1 km. Drag to move, scroll or use the buttons to zoom, select a marker for details.</p>
+    <div class="panel" id="map-detail"></div>
+    <p class="small muted">Places with no known position: ${esc(general.join(", "))}. Building Material Crates and other common spots are not marked because they are all over the map.</p>
+    <p class="small muted">Map made from in-game screenshots, with session icons retouched out. It belongs to MADFINGER Games and will be removed on request.</p>`;
+}
+function mapDraw() {
+  const svg = document.getElementById("map");
+  if (!svg) return;
+  const v = mapPrefs.view, h = v.w / MAP_ASPECT;
+  svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${h}`);
+  const r = v.w * 0.0085, font = v.w * 0.015, sw = v.w * 0.002;
+  const grid = [];
+  for (let x = 100; x <= 260; x += 10) {
+    grid.push(`<line x1="${x}" y1="0" x2="${x}" y2="${MAP_H}" class="map-grid" stroke-width="${sw / 2}"></line>`);
+    grid.push(`<text x="${x + font * 0.25}" y="${v.y + font * 1.1}" font-size="${font * 0.8}" class="map-text">${x}</text>`);
+  }
+  for (let y = 100; y <= 180; y += 10) {
+    grid.push(`<line x1="${MAP.x0}" y1="${flipY(y)}" x2="${MAP.x1}" y2="${flipY(y)}" class="map-grid" stroke-width="${sw / 2}"></line>`);
+    grid.push(`<text x="${v.x + font * 0.3}" y="${flipY(y) - font * 0.25}" font-size="${font * 0.8}" class="map-text">${y}</text>`);
+  }
+  // Several places can share one rough position, for example inside Tiger Bay. They get one label.
+  const all = mapPlaces(queue());
+  const labelled = new Set();
+  const places = [...all].sort((a, b) => b.on - a.on).map(p => {
+    const x = p.x, y = flipY(p.y), s = r * 1.5, chosen = (mapPrefs.selected || []).includes(p.id);
+    const ring = chosen ? `<circle cx="${x}" cy="${y}" r="${s * 1.7}" fill="none" class="map-ring" stroke-width="${sw * 1.5}"></circle>` : "";
+    const spot = `${p.x},${p.y}`, others = all.filter(o => o.on && `${o.x},${o.y}` === spot).length - 1;
+    const showLabel = p.on && v.w < 100 && !labelled.has(spot);
+    if (showLabel) labelled.add(spot);
+    const label = showLabel ? `<text x="${x + s * 1.3}" y="${y + font * 0.35}" font-size="${font}" class="map-text">${esc(LOCS[p.id].name)}${others ? ` +${others}` : ""}</text>` : "";
+    return `${ring}<polygon points="${x},${y - s} ${x + s},${y} ${x},${y + s} ${x - s},${y}" opacity="${p.on ? 1 : 0.25}" class="map-place" stroke-width="${sw}"></polygon>${label}`;
+  });
+  const bases = Object.entries(FACTIONS).map(([id, f]) => {
+    const mine = id === state.faction, q = r * (mine ? 1.3 : 0.9);
+    return `<rect x="${f.base[0] - q}" y="${flipY(f.base[1]) - q}" width="${q * 2}" height="${q * 2}" class="${mine ? "map-base" : "map-other"}" stroke-width="${sw}"></rect><text x="${f.base[0]}" y="${flipY(f.base[1]) + q + font * 1.1}" text-anchor="middle" font-size="${font * (mine ? 1 : 0.85)}" class="map-text">${mine ? "Your base" : esc(f.name)}</text>`;
+  });
+  const lagoon = `<text x="203.5" y="${flipY(116)}" text-anchor="middle" font-size="${font}" class="map-text map-poi">Blue Lagoon</text>`;
+  document.getElementById("map-marks").innerHTML = grid.join("") + lagoon + places.reverse().join("") + bases.join("");
+  mapDetail();
+}
+function mapDetail() {
+  const el = document.getElementById("map-detail");
+  if (!el) return;
+  const ids = mapPrefs.selected;
+  if (!ids) { el.innerHTML = `<p class="muted">Select a marker to see what players report there.</p>`; return; }
+  const need = needs(queue().slice(0, 5));
+  el.innerHTML = ids.map(id => {
+    const loc = LOCS[id], km = distanceLabel(id);
+    return `<div class="stop"><div><span class="label">Reported place</span><h3>${esc(loc.name)}</h3><span class="row tight">${coordButtons(loc)}${loc.pos ? `<span class="small muted">rough position</span>` : ""}${km ? `<span class="mono small muted">${km} from your base</span>` : ""}</span></div>
+      ${loc.tip ? `<p class="small">${esc(loc.tip)}</p>` : ""}
+      <div class="tags">${partsAt(id).map(m => `<span class="tag${need[m] > have(m) ? " hot" : ""}">${esc(m)}</span>`).join("")}</div>
+      <p class="small muted">Source: ${sourceLinks(loc.src)}</p></div>`;
+  }).join("") + `<p class="small muted">Orange parts are ones you need next.</p>`;
+}
+function mapZoomAt(factor, x, y) {
+  const v = mapPrefs.view, w = Math.min(MAP_W, Math.max(MAP.minW, v.w * factor)), k = w / v.w;
+  mapPrefs.view = mapClamp({ x: x - (x - v.x) * k, y: y - (y - v.y) * k, w });
+  mapDraw();
+}
+function mapZoom(action) {
+  const v = mapPrefs.view, cx = v.x + v.w / 2, cy = v.y + v.w / MAP_ASPECT / 2;
+  if (action === "in") return mapZoomAt(0.7, cx, cy);
+  if (action === "out") return mapZoomAt(1 / 0.7, cx, cy);
+  mapPrefs.view = action === "all" ? { x: MAP.x0, y: 0, w: MAP_W } : mapHome();
+  mapDraw();
+}
+function mapPoint(svg, e) {
+  const m = svg.getScreenCTM().inverse();
+  return { x: m.a * e.clientX + m.c * e.clientY + m.e, y: m.b * e.clientX + m.d * e.clientY + m.f };
+}
+document.addEventListener("pointerdown", e => {
+  const svg = e.target.closest && e.target.closest("#map");
+  if (!svg) return;
+  mapPrefs.drag = { sx: e.clientX, sy: e.clientY, vx: mapPrefs.view.x, vy: mapPrefs.view.y, moved: false, scale: svg.getScreenCTM().a };
+  svg.setPointerCapture(e.pointerId);
+});
+document.addEventListener("pointermove", e => {
+  const d = mapPrefs.drag;
+  if (!d) return;
+  const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+  if (Math.abs(dx) + Math.abs(dy) > 5) d.moved = true;
+  if (!d.moved) return;
+  mapPrefs.view = mapClamp({ x: d.vx - dx / d.scale, y: d.vy - dy / d.scale, w: mapPrefs.view.w });
+  mapDraw();
+});
+document.addEventListener("pointerup", e => {
+  const d = mapPrefs.drag;
+  mapPrefs.drag = null;
+  const svg = document.getElementById("map");
+  if (!d || d.moved || !svg) return;
+  // Picks the closest marker, so small targets are easy to hit on a phone.
+  const at = mapPoint(svg, e);
+  const places = mapPlaces(queue());
+  let best = null, dist = mapPrefs.view.w * 0.03;
+  places.forEach(p => {
+    const gap = Math.hypot(p.x - at.x, flipY(p.y) - at.y);
+    if (gap < dist) { dist = gap; best = p; }
+  });
+  mapPrefs.selected = best ? [...new Set(places.filter(p => p.x === best.x && p.y === best.y).map(p => p.id))] : null;
+  mapDraw();
+});
+document.addEventListener("wheel", e => {
+  const svg = e.target.closest && e.target.closest("#map");
+  if (!svg) return;
+  // At the zoom limits the wheel scrolls the page again.
+  if ((e.deltaY < 0 && mapPrefs.view.w <= MAP.minW) || (e.deltaY > 0 && mapPrefs.view.w >= MAP_W)) return;
+  e.preventDefault();
+  const at = mapPoint(svg, e);
+  mapZoomAt(e.deltaY < 0 ? 0.85 : 1 / 0.85, at.x, at.y);
+}, { passive: false });
 
 function renderToast() {
   const el = document.getElementById("toast");
@@ -488,8 +644,10 @@ function render() {
   view.innerHTML =
     state.tab === "materials" ? renderMaterials(q)
     : state.tab === "locations" ? renderLocations(q)
+    : state.tab === "map" ? renderMap(q)
     : state.tab === "stations" ? renderStations(q)
     : renderAbout();
+  mapDraw();
   applySearch();
   renderToast();
   if (activeId && activeId !== "log-part" && document.getElementById(activeId)) document.getElementById(activeId).focus();
@@ -521,6 +679,7 @@ document.addEventListener("click", e => {
   else if (act === "scope") { state.scope = v; save(); }
   else if (act === "theme") { state.theme = THEMES[(THEMES.indexOf(state.theme) + 1) % THEMES.length]; save(); }
   else if (act === "guide-done") { state.guideDone = true; save(); }
+  else if (act === "zoom") mapZoom(v);
   else if (act === "copy-coord") copyText(v, `Copied ${v}.`);
   else if (act === "copy-list") {
     const text = raidList(queue());
@@ -529,7 +688,8 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.id === "faction") { state.faction = FACTIONS[t.value] ? t.value : null; save(); }
+  if (t.id === "faction") { state.faction = FACTIONS[t.value] ? t.value : null; mapPrefs.view = null; save(); }
+  else if (t.id === "map-filter") { mapPrefs.filter = t.value; mapPrefs.selected = null; render(); }
   else if (t.dataset.rank) { state.ranks[t.dataset.rank] = t.checked; save(); }
   else if (t.id === "hide-done") { state.hideDone = t.checked; save(); }
   else if (t.dataset.act === "have") setHave(t.dataset.m, t.value);
