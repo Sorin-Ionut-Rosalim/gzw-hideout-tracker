@@ -34,7 +34,7 @@ No build step and no dependencies. Open `index.html` in a browser, or serve the 
 | `app.js` | Logic and rendering, with progress stored in `localStorage` |
 | `styles.css` | Styles, light and dark |
 
-Most corrections only touch `data.js`.
+Most corrections only touch `data.js`. After changing `data.js`, `app.js` or `styles.css`, raise the `?v=` number in `index.html`, so browsers load the new files together.
 
 ## Data sources
 
