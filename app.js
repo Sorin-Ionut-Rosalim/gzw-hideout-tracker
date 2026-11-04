@@ -716,6 +716,14 @@ function renderMap(q) {
     <p class="small muted">Not marked, because they are all over the map: ${esc(common.join(", "))}.</p>
     <p class="small muted">Map made from in-game screenshots, with session icons retouched out. It belongs to MADFINGER Games and will be removed on request.</p>`;
 }
+// The picture fills its box and crops what does not fit, so on a phone less of the view is on screen.
+function mapVisible(svg, v, h) {
+  const box = svg.getBoundingClientRect();
+  if (!box.width || !box.height) return { x: v.x, y: v.y, w: v.w, h };
+  const scale = Math.max(box.width / v.w, box.height / h);
+  const w = box.width / scale, visibleH = box.height / scale;
+  return { x: v.x + (v.w - w) / 2, y: v.y + (h - visibleH) / 2, w, h: visibleH };
+}
 function mapDraw() {
   const svg = document.getElementById("map");
   if (!svg) return;
@@ -723,6 +731,9 @@ function mapDraw() {
   svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${h}`);
   drawTiles(svg, v);
   const r = v.w * 0.0085, font = v.w * 0.015, sw = v.w * 0.002;
+  const vis = mapVisible(svg, v, h);
+  const fits = (left, right, y) => left >= vis.x && right <= vis.x + vis.w && y - font >= vis.y && y + font * 0.7 <= vis.y + vis.h;
+  const textWidth = (text, size) => text.length * size * 0.56;
   const grid = [];
   for (let x = 100; x <= 260; x += 10) {
     grid.push(`<line x1="${x}" y1="0" x2="${x}" y2="${MAP_H}" class="map-grid" stroke-width="${sw / 2}"></line>`);
@@ -730,36 +741,50 @@ function mapDraw() {
   }
   for (let y = 100; y <= 180; y += 10) {
     grid.push(`<line x1="${MAP.x0}" y1="${flipY(y)}" x2="${MAP.x1}" y2="${flipY(y)}" class="map-grid" stroke-width="${sw / 2}"></line>`);
-    grid.push(`<text x="${v.x + font * 0.3}" y="${flipY(y) - font * 0.25}" font-size="${font * 0.8}" class="map-text">${y}</text>`);
+    grid.push(`<text x="${vis.x + font * 0.3}" y="${flipY(y) - font * 0.25}" font-size="${font * 0.8}" class="map-text">${y}</text>`);
   }
   // Several places can share one rough position, for example inside Tiger Bay. They get one label.
   const all = mapPlaces(queue());
   const labelled = new Set();
   const taken = [];
-  const roomFor = (x, y, width) => {
-    const free = !taken.some(t => x < t.x + t.width && t.x < x + width && Math.abs(y - t.y) < font * 1.5);
-    if (free) taken.push({ x, y, width });
-    return free;
+  // A label sits right of its marker, or left when it would run off the map. With no room on either side it stays hidden.
+  const labelSide = (x, y, width) => {
+    for (const [side, left] of [["right", x], ["left", x - width]]) {
+      const free = !taken.some(t => left < t.left + t.width && t.left < left + width && Math.abs(y - t.y) < font * 1.5);
+      if (free && fits(left, left + width, y)) {
+        taken.push({ left, y, width });
+        return side;
+      }
+    }
+    return null;
   };
-  const places = [...all].sort((a, b) => b.on - a.on).map(p => {
-    const x = p.x, y = flipY(p.y), s = r * 1.5, chosen = (mapPrefs.selected || []).includes(p.id);
-    const ring = chosen ? `<circle cx="${x}" cy="${y}" r="${s * 1.7}" fill="none" class="map-ring" stroke-width="${sw * 1.5}"></circle>` : "";
+  const isChosen = p => (mapPrefs.selected || []).includes(p.id);
+  const places = [...all].sort((a, b) => isChosen(b) - isChosen(a) || b.on - a.on).map(p => {
+    const x = p.x, y = flipY(p.y), s = r * 1.5;
+    const ring = isChosen(p) ? `<circle cx="${x}" cy="${y}" r="${s * 1.7}" fill="none" class="map-ring" stroke-width="${sw * 1.5}"></circle>` : "";
     const spot = `${p.x},${p.y}`, others = all.filter(o => o.on && `${o.x},${o.y}` === spot).length - 1;
     const text = `${LOCS[p.id].name}${others ? ` +${others}` : ""}`;
-    const showLabel = p.on && v.w < 100 && !labelled.has(spot) && roomFor(x, y, text.length * font * 0.56 + s * 1.3);
-    if (showLabel) labelled.add(spot);
-    const label = showLabel ? `<text x="${x + s * 1.3}" y="${y + font * 0.35}" font-size="${font}" class="map-text">${esc(text)}</text>` : "";
+    const side = p.on && v.w < 100 && !labelled.has(spot) ? labelSide(x, y, textWidth(text, font) + s * 1.3) : null;
+    if (side) labelled.add(spot);
+    const label = !side ? "" : side === "right"
+      ? `<text x="${x + s * 1.3}" y="${y + font * 0.35}" font-size="${font}" class="map-text">${esc(text)}</text>`
+      : `<text x="${x - s * 1.3}" y="${y + font * 0.35}" text-anchor="end" font-size="${font}" class="map-text">${esc(text)}</text>`;
     const rough = !LOCS[p.id].at;
     return `${ring}<polygon points="${x},${y - s} ${x + s},${y} ${x},${y + s} ${x - s},${y}" opacity="${p.on ? 1 : 0.25}" class="map-place${rough ? " rough" : ""}" stroke-width="${rough ? sw * 2 : sw}"></polygon>${label}`;
   });
   const bases = Object.entries(FACTIONS).map(([id, f]) => {
     const mine = id === state.faction, q = r * (mine ? 1.3 : 0.9);
-    return `<rect x="${f.base[0] - q}" y="${flipY(f.base[1]) - q}" width="${q * 2}" height="${q * 2}" class="${mine ? "map-base" : "map-other"}" stroke-width="${sw}"></rect><text x="${f.base[0]}" y="${flipY(f.base[1]) + q + font * 1.1}" text-anchor="middle" font-size="${font * (mine ? 1 : 0.85)}" class="map-text">${mine ? "Your base" : esc(f.name)}</text>`;
+    const name = mine ? "Your base" : f.name, size = font * (mine ? 1 : 0.85);
+    const half = textWidth(name, size) / 2, textY = flipY(f.base[1]) + q + font * 1.1;
+    const label = fits(f.base[0] - half, f.base[0] + half, textY) ? `<text x="${f.base[0]}" y="${textY}" text-anchor="middle" font-size="${size}" class="map-text">${esc(name)}</text>` : "";
+    return `<rect x="${f.base[0] - q}" y="${flipY(f.base[1]) - q}" width="${q * 2}" height="${q * 2}" class="${mine ? "map-base" : "map-other"}" stroke-width="${sw}"></rect>${label}`;
   });
-  const lagoon = `<text x="203.5" y="${flipY(116)}" text-anchor="middle" font-size="${font}" class="map-text map-poi">Blue Lagoon</text>`;
+  const lagoonHalf = textWidth("Blue Lagoon", font) / 2;
+  const lagoon = fits(203.5 - lagoonHalf, 203.5 + lagoonHalf, flipY(116)) ? `<text x="203.5" y="${flipY(116)}" text-anchor="middle" font-size="${font}" class="map-text map-poi">Blue Lagoon</text>` : "";
   document.getElementById("map-marks").innerHTML = grid.join("") + lagoon + places.reverse().join("") + bases.join("");
   mapDetail();
 }
+window.addEventListener("resize", mapDraw);
 function mapDetail() {
   const el = document.getElementById("map-detail");
   if (!el) return;
